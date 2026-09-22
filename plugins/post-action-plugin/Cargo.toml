@@ -1,0 +1,12 @@
+[package]
+name = "post-action-plugin"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "投稿のアクションバーに足す手動ボタン(後で読む / 本文をコピー / 引用の下書き)。タグで既存ボタンのバンドルに入る"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rasq-plugin-kit = { path = "../../kit" }

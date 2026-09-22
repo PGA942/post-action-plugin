@@ -1,0 +1,10 @@
+schema = "rasq.workspace/1"
+sdk = "0.1.0"
+
+[author]
+namespace = "sample"
+
+[[plugins]]
+name = "post-action-plugin"
+slot = "post.action"
+id = "sample.post-action"

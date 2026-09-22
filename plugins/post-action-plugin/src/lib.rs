@@ -2,7 +2,7 @@
 //!
 //! | 項目 | 入口 |
 //! |---|---|
-//! | マニフェスト | `plugin.manifest`(`actions` にボタンとタグ = 希望スロットを宣言) |
+//! | マニフェスト | `plugin.manifest`(`manifest.json` の `actions` にボタンとタグ = 希望スロットを宣言) |
 //! | 後で読む | `post.action {actionId:"later"}` → `storage.get later` → 先頭に足す(50 件 / URL で重複除去)→ `storage.set later` → `fow.open`(一覧) |
 //! | 本文をコピー | `post.action {actionId:"copy"}` → `clipboard.set {text: body}` |
 //! | 引用の下書き | `post.action {actionId:"quoteDraft"}` → `composer.open {token, text:"「本文 80 文字」\n<url>"}` |
@@ -10,14 +10,15 @@
 //! | 空にする | `later.clear` → `storage.set later []` + 一覧を surface patch で描き直す |
 //! | FOW が閉じた | `panelClosed`(一覧は storage にあるので捨てるものは無い) |
 //!
-//! ビルド: `cargo build --release --target wasm32-unknown-unknown -p post-action-plugin`
-//! 契約: `../CONTRACT.md` §2.9 / §2.1(投稿 payload)/ §4。
+//! `plugin.manifest` の答えは同じディレクトリの `manifest.json` そのもの(`include_str!`。
+//! `rasq check` の往復検査が常に一致する)。ボタン(`actions`)を足す / 直すときは `manifest.json` を直し、
+//! `handle` の `post.action` にその `actionId` の枝を足す。
+//!
+//! 確認: `rasq check` / `rasq call post-action-plugin post.action --args '…' --reply '…'`
+//! 契約: `../../CONTRACT.md` が指す rasq-sdk-sample `docs/slots.md` §2.9 / §2.1(投稿 payload)/ §4。
 
-use rasq_plugin_kit::{err, fow_spec, host, manifest, rasq_plugin, rrl, serde_json::{json, Value}, unsupported, Surface};
+use rasq_plugin_kit::{err, fow_spec, host, rasq_plugin, rrl, serde_json::{json, Value}, unsupported, Surface};
 use std::sync::Mutex;
-
-const PLUGIN_ID: &str = "sample.post-action";
-const VERSION: &str = "0.1.0";
 
 /// 一覧に覚える本文 / 引用に入れる本文の上限(Unicode スカラー値)。
 pub const BODY_CHARS: usize = 80;
@@ -29,32 +30,9 @@ const STORAGE_KEY: &str = "later";
 
 static PANEL: Surface = Surface::new("later-list");
 
-// ---------------------------------------------------------------------------
-// ボタン(マニフェストの `actions`)
-// ---------------------------------------------------------------------------
-
-/// アクションバーに足すボタン 1 つ。`tags` = 希望スロット(ホストが既存ボタンのタグと比べてバンドルに入れる)。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Action {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub icon: &'static str,
-    pub tags: &'static [&'static str],
-}
-
-pub const ACTIONS: [Action; 3] = [
-    Action { id: "later", label: "後で読む", icon: "bookmark_add", tags: &["Favorite", "Bookmark", "Star"] },
-    Action { id: "copy", label: "本文をコピー", icon: "content_copy", tags: &["Copy", "Share"] },
-    Action { id: "quoteDraft", label: "引用の下書き", icon: "format_quote", tags: &["Quote", "Repost"] },
-];
-
-fn actions_json() -> Value {
-    Value::Array(
-        ACTIONS
-            .iter()
-            .map(|a| json!({"id": a.id, "label": a.label, "icon": a.icon, "tags": a.tags}))
-            .collect(),
-    )
+/// `plugin.manifest` の答え = `manifest.json`(ボタン / 名前 / 権限はあちらを直す)。
+fn manifest() -> Value {
+    rasq_plugin_kit::serde_json::from_str(include_str!("../manifest.json")).expect("manifest.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -210,19 +188,7 @@ fn open_list(list: &[LaterEntry]) {
 
 fn handle(fn_name: &str, args: Value) -> Result<Value, Value> {
     match fn_name {
-        "plugin.manifest" => {
-            let mut m = manifest(
-                PLUGIN_ID,
-                "投稿ボタン(サンプル)",
-                VERSION,
-                "action",
-                "後で読む / 本文をコピー / 引用の下書き — タグで既存ボタンのバンドルに入る",
-                &["post.action"],
-                &["fow.widget", "storage.safe"],
-            );
-            m["actions"] = actions_json();
-            Ok(m)
-        }
+        "plugin.manifest" => Ok(manifest()),
 
         // --- ボタンを押した ---------------------------------------------------
         "post.action" => {
@@ -343,6 +309,14 @@ mod tests {
         node["c"].as_array()?.iter().find_map(|c| find_node(c, key))
     }
 
+    /// `plugin.manifest` は `manifest.json` そのもの(`rasq check` の往復検査と同じ突き合わせ)。
+    #[test]
+    fn manifest_matches_manifest_json() {
+        let m = call_native("plugin.manifest", json!({})).unwrap();
+        let file: Value = rasq_plugin_kit::serde_json::from_str(include_str!("../manifest.json")).unwrap();
+        assert_eq!(m, file);
+    }
+
     #[test]
     fn manifest_declares_actions_with_tags() {
         let m = call_native("plugin.manifest", json!({})).unwrap();
@@ -359,6 +333,18 @@ mod tests {
                 {"id": "quoteDraft", "label": "引用の下書き", "icon": "format_quote", "tags": ["Quote", "Repost"]}
             ])
         );
+    }
+
+    /// マニフェストが宣言したボタンは全部 `post.action` で受けられる(取りこぼしを防ぐ)。
+    #[test]
+    fn every_declared_action_is_handled() {
+        let (_g, _store) = setup(Value::Null);
+        let m = call_native("plugin.manifest", json!({})).unwrap();
+        for a in m["actions"].as_array().unwrap() {
+            let id = a["id"].as_str().unwrap();
+            let r = action("tk", id, URL1, "アリス", "本文");
+            assert!(r.is_ok(), "actionId {id} が handle にない: {r:?}");
+        }
     }
 
     #[test]
