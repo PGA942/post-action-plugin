@@ -3,11 +3,14 @@
 スロット **`post.action`**(`rasq-sdk-sample/docs/slots.md` §2.9)。`post.transform`(自動で本文を書き換える)と違い、
 投稿の **アクションバー** に **ユーザーが押して動く** ボタンを足す。マニフェストの `actions` に 3 つ宣言する:
 
-| id | ラベル | icon | tags(希望スロット) | 動き |
-|---|---|---|---|---|
-| `later` | 後で読む | `bookmark_add` | `Favorite` / `Bookmark` / `Star` | `storage.safe` の `later` に先頭追加(最大 50 件、URL で重複除去)→ 一覧 FOW を開く |
-| `copy` | 本文をコピー | `content_copy` | `Copy` / `Share` | `clipboard.set {text: post.body}` |
-| `quoteDraft` | 引用の下書き | `format_quote` | `Quote` / `Repost` | `composer.open {token, text: "「<本文 80 文字まで>」\n<url>"}` |
+| id | ラベル | icon | tags(希望スロット) | placement(v0.14) | 動き |
+|---|---|---|---|---|---|
+| `later` | 後で読む | `bookmark_add` | `Favorite` / `Bookmark` / `Star` | `auto` | `storage.safe` の `later` に先頭追加(最大 50 件、URL で重複除去)→ 一覧 FOW を開く |
+| `copy` | 本文をコピー | `content_copy` | `Copy` / `Share` | `auto` | `clipboard.set {text: post.body}` |
+| `quoteDraft` | 引用の下書き | `format_quote` | `Quote` / `Repost` | **`manual`** | `composer.open {token, text: "「<本文 80 文字まで>」\n<url>"}` |
+
+どのボタンも `auto`(temp = 投稿タイルが作られた瞬間に自動で実行するか)は書かない = 既定の `false`(利用者が押すまで動かない)。
+そのため権限 `auto_hook` も持たない(下の「配置の宣言」)。
 
 ## このリポジトリの形(`rasq` ワークスペース)
 
@@ -41,9 +44,28 @@ dist/                                    # rasq build --raw の出力(.rasqpkg �
 - どれにも届かなければ **単体ボタン** として末尾に並ぶ
 
 例: `later` の `Favorite` は Mastodon の「お気に入り」(`Favorite`)に一致 → お気に入りのバンドルに入る。Misskey なら
-`Reaction` には届かないが、`Bookmark` / `Star` の別名がホストにあればそこへ。`quoteDraft` の `Quote` / `Repost` は
-引用 / リポスト(ブースト)のバンドルへ。閾値やボタンごとの有効 / 無効は「アクションリストの編集」→「プラグインボタン」節で
-アカウントごとに変えられる。ボタンの id はホスト側で `slot:sample.post-action:<actionId>`(= ActionKey)になる。
+`Reaction` には届かないが、`Bookmark` / `Star` の別名がホストにあればそこへ。閾値やボタンごとの有効 / 無効は
+「アクションリストの編集」→「プラグインボタン」節でアカウントごとに変えられる。ボタンの id はホスト側で
+`slot:sample.post-action:<actionId>`(= ActionKey)になる。
+
+この自動配置は `placement: "auto"` のボタン(`later` / `copy`)だけ。`quoteDraft` は `placement: "manual"`(次節)。
+
+## 配置の宣言(契約 v0.14 placement、`docs/slots.md` §2.9 / §2.11)
+
+```json
+{ "id": "later",      "label": "後で読む",     "icon": "bookmark_add",  "tags": ["Favorite", "Bookmark", "Star"], "placement": "auto" },
+{ "id": "copy",       "label": "本文をコピー", "icon": "content_copy",  "tags": ["Copy", "Share"],               "placement": "auto" },
+{ "id": "quoteDraft", "label": "引用の下書き", "icon": "format_quote",  "tags": ["Quote", "Repost"],             "placement": "manual" }
+```
+
+- **`placement: "auto"`**(既定。ここでは明示)= 宣言だけでホストが上のタグの規則で自動配置する。
+- **`placement: "manual"`** = **自動では置かれない**。利用者がアクションバーの (+)「プラグインボタンを検索」FOW で
+  このボタンを見つけて足したときだけ出る。「引用の下書き」は毎回使うものではなく、使いたい人が自分で選んで足す
+  ボタンなので `manual` にしている(スロット登録しただけで引用 / リポストのバンドルが増えない)。
+- `manual` でも `tags` は残す: 検索 FOW でのタグ一致に使う(`manual` で `tags` が無いと `rasq check` が
+  「検索でタグ一致しない」warning を出す)。
+- `placement` は「置くかどうか」だけ。全体のオン / オフ(switch)は利用者の設定、面が作られた瞬間に自動で動くか(temp)は
+  `auto` で、どちらも直交する。このサンプルは `auto` を書かないので、どのボタンも押したときだけ動く。
 
 ## call / ホスト関数の流れ
 
@@ -81,11 +103,11 @@ FOW を閉じても消えない。
 ```sh
 rasq check                 # wasm32 ビルド → export 検査 → manifest 往復 → スキーマ / 登録簿 → cargo test
 rasq test                  # cargo test だけ
-rasq build --raw           # dist/sample.post-action-0.1.0.rasqpkg と dist/post_action_plugin.wasm
-rasq inspect dist/sample.post-action-0.1.0.rasqpkg
+rasq build --raw           # dist/sample.post-action-0.1.1.rasqpkg と dist/post_action_plugin.wasm
+rasq inspect dist/sample.post-action-0.1.1.rasqpkg
 ```
 
-native テストは `rasq_plugin_kit::set_host_hook` でホスト関数を差し替え、マニフェストの `actions`(3 つ + tags)、
+native テストは `rasq_plugin_kit::set_host_hook` でホスト関数を差し替え、マニフェストの `actions`(3 つ + tags + placement、`auto` は書かない)、
 `later` → `storage.set` + `fow.open`(行の title / subtitle / tap、重複除去、新しい順、50 件上限)、`later.open.<i>` → `url.open`、
 `later.clear` → surface patch、`copy` → `clipboard.set`、`quoteDraft` → `composer.open`(80 文字で切る)、
 不明な `actionId` / `post` 無し → `D01` を検証している。
@@ -116,13 +138,15 @@ rasq call post-action-plugin post.action \
 1. `rasq dev` が出す絶対パス(または `dist/post_action_plugin.wasm` の絶対パス)を控える。
 2. サイドバー → **WASMプラグイン試験 (dev)** → `.wasm のパスからインポート` に貼って **読み込み**。
 3. **スロットに登録**(権限 `fow.widget` / `storage.safe` を許可)。
-4. 投稿のアクションバーで、お気に入り / リポスト などのバンドルを開くと最下層にプラグインのボタンが出る
+4. 投稿のアクションバーで、お気に入り などのバンドルを開くと最下層にプラグインのボタン(`later` / `copy`)が出る
    (届かなかったものは末尾の単体ボタン)。「アクションリストの編集」→「プラグインボタン」で有効 / 無効と閾値を変えられる。
+   「引用の下書き」(`placement: "manual"`)はこの時点では出ない。アクションバーの (+) →「プラグインボタンを検索」で
+   「引用」などで探して足すと出る。
 5. 「後で読む」→ 一覧 FOW(行のタップでブラウザ、「後で読むを空にする」でクリア)、「本文をコピー」→ トースト、
    「引用の下書き」→ 選んだアカウントのコンポーザーに文面が入る。
 
 ## 掲載(審査)に出す
 
-`rasq build` が出す `dist/sample.post-action-0.1.0.rasqpkg` がそのまま掲載できる形
+`rasq build` が出す `dist/sample.post-action-0.1.1.rasqpkg` がそのまま掲載できる形
 (zstd tar + `bundle.json` `rasq.bundle/1` + `SHA512SUMS`)。`rasq publish --central <url> --dry-run` で
 Central への 3 要求を書き出せる。開発者鍵の署名(`*.sig.json`)はサイドロード用で、リポジトリには入れない。
