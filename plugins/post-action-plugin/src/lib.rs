@@ -2,7 +2,7 @@
 //!
 //! | 項目 | 入口 |
 //! |---|---|
-//! | マニフェスト | `plugin.manifest`(`manifest.json` の `actions` にボタンとタグ = 希望スロットを宣言) |
+//! | マニフェスト | `plugin.manifest`(`manifest.json` の `actions` にボタンとタグ = 希望スロット、`placement`(v0.14)を宣言) |
 //! | 後で読む | `post.action {actionId:"later"}` → `storage.get later` → 先頭に足す(50 件 / URL で重複除去)→ `storage.set later` → `fow.open`(一覧) |
 //! | 本文をコピー | `post.action {actionId:"copy"}` → `clipboard.set {text: body}` |
 //! | 引用の下書き | `post.action {actionId:"quoteDraft"}` → `composer.open {token, text:"「本文 80 文字」\n<url>"}` |
@@ -317,6 +317,8 @@ mod tests {
         assert_eq!(m, file);
     }
 
+    /// placement(v0.14): `later` / `copy` は宣言だけで自動配置(`auto`)、`quoteDraft` は利用者が (+) で足すまで出ない(`manual`)。
+    /// `auto`(temp)は書かない = post.action の既定 `false`(押すまで動かない。`auto_hook` 権限も持たない)。
     #[test]
     fn manifest_declares_actions_with_tags() {
         let m = call_native("plugin.manifest", json!({})).unwrap();
@@ -328,11 +330,14 @@ mod tests {
         assert_eq!(
             m["actions"],
             json!([
-                {"id": "later", "label": "後で読む", "icon": "bookmark_add", "tags": ["Favorite", "Bookmark", "Star"]},
-                {"id": "copy", "label": "本文をコピー", "icon": "content_copy", "tags": ["Copy", "Share"]},
-                {"id": "quoteDraft", "label": "引用の下書き", "icon": "format_quote", "tags": ["Quote", "Repost"]}
+                {"id": "later", "label": "後で読む", "icon": "bookmark_add", "tags": ["Favorite", "Bookmark", "Star"], "placement": "auto"},
+                {"id": "copy", "label": "本文をコピー", "icon": "content_copy", "tags": ["Copy", "Share"], "placement": "auto"},
+                {"id": "quoteDraft", "label": "引用の下書き", "icon": "format_quote", "tags": ["Quote", "Repost"], "placement": "manual"}
             ])
         );
+        for a in m["actions"].as_array().unwrap() {
+            assert!(a.get("auto").is_none(), "auto は書かない(auto_hook を持たない): {a}");
+        }
     }
 
     /// マニフェストが宣言したボタンは全部 `post.action` で受けられる(取りこぼしを防ぐ)。

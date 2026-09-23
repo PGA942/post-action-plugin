@@ -2,7 +2,7 @@
   "schema": "rasq.plugin-manifest/1",
   "id": "sample.post-action",
   "name": "投稿ボタン(サンプル)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "kind": "action",
   "description": "後で読む / 本文をコピー / 引用の下書き — タグで既存ボタンのバンドルに入る",
   "slots": [
@@ -21,7 +21,8 @@
         "Favorite",
         "Bookmark",
         "Star"
-      ]
+      ],
+      "placement": "auto"
     },
     {
       "id": "copy",
@@ -30,7 +31,8 @@
       "tags": [
         "Copy",
         "Share"
-      ]
+      ],
+      "placement": "auto"
     },
     {
       "id": "quoteDraft",
@@ -39,7 +41,8 @@
       "tags": [
         "Quote",
         "Repost"
-      ]
+      ],
+      "placement": "manual"
     }
   ]
 }
