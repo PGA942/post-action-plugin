@@ -17,8 +17,11 @@
 //! 確認: `rasq check` / `rasq call post-action-plugin post.action --args '…' --reply '…'`
 //! 契約: `../../CONTRACT.md` が指す rasq-sdk-sample `docs/slots.md` §2.9 / §2.1(投稿 payload)/ §4。
 
-use rasq_plugin_kit::{err, fow_spec, host, rasq_plugin, rrl, serde_json::{json, Value}, unsupported, Surface};
+use rasq_plugin_kit::{err, fow_spec, host, i18n, rasq_plugin, rrl, serde_json::{json, Value}, unsupported, Surface};
 use std::sync::Mutex;
+
+mod text;
+use text::TEXT;
 
 /// 一覧に覚える本文 / 引用に入れる本文の上限(Unicode スカラー値)。
 pub const BODY_CHARS: usize = 80;
@@ -96,9 +99,9 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
     }
 }
 
-/// 引用の下書きの文面: `「<本文 80 文字まで>」\n<url>`。
-pub fn quote_text(p: &PostInput) -> String {
-    format!("「{}」\n{}", truncate_chars(p.body.trim(), BODY_CHARS), p.url)
+/// 引用の下書きの文面: `「<本文 80 文字まで>」\n<url>`(引用符は `loc` の言語のもの。`{url}` を先に差し込む)。
+pub fn quote_text(p: &PostInput, loc: &str) -> String {
+    TEXT.f(loc, "quote.text", &[("url", &p.url), ("body", &truncate_chars(p.body.trim(), BODY_CHARS))])
 }
 
 /// 一覧の先頭に足す。同じ URL が既にあれば足さず `false`。`LATER_MAX` を超えたぶんは末尾(古い方)から落とす。
@@ -155,30 +158,32 @@ fn is_open() -> bool {
 // RRL(一覧 FOW の中身)
 // ---------------------------------------------------------------------------
 
-fn later_column(list: &[LaterEntry]) -> Value {
-    let mut children = vec![rrl::styled_text("later-count", format!("後で読む: {} 件", list.len()), 13.0, true, Some("#888888"))];
+fn later_column(loc: &str, list: &[LaterEntry]) -> Value {
+    let count = TEXT.f(loc, "later.count", &[("n", &list.len().to_string())]);
+    let mut children = vec![rrl::styled_text("later-count", count, 13.0, true, Some("#888888"))];
     if list.is_empty() {
-        children.push(rrl::styled_text("later-empty", "まだありません", 12.0, false, Some("#888888")));
+        children.push(rrl::styled_text("later-empty", TEXT.t(loc, "later.empty"), 12.0, false, Some("#888888")));
     }
     children.extend(list.iter().enumerate().map(|(i, e)| {
         let title = if e.author.is_empty() { e.url.as_str() } else { e.author.as_str() };
         rrl::list_tile(&format!("later.{i}"), title, Some(&e.body), Some(&format!("later.open.{i}")))
     }));
-    children.push(rrl::button("later.clear", "後で読むを空にする", "later.clear"));
+    children.push(rrl::button("later.clear", TEXT.t(loc, "later.clear"), "later.clear"));
     rrl::column("root", children)
 }
 
-fn later_root(list: &[LaterEntry]) -> Value {
-    rrl::scroll("root-scroll", false, vec![later_column(list)])
+fn later_root(loc: &str, list: &[LaterEntry]) -> Value {
+    rrl::scroll("root-scroll", false, vec![later_column(loc, list)])
 }
 
 /// 本体ツリーは使わない(UI は一覧 FOW だけ)。
 fn root() -> Value {
-    rrl::column("root", vec![rrl::text("hello", "投稿ボタン(UI は後で読むの FOW)")])
+    let loc = i18n::current();
+    rrl::column("root", vec![rrl::text("hello", TEXT.t(&loc, "root.hello"))])
 }
 
-fn open_list(list: &[LaterEntry]) {
-    let opened = PANEL.open(fow_spec("後で読む", 0.55), later_root(list), Some("panelClosed"), json!({}));
+fn open_list(loc: &str, list: &[LaterEntry]) {
+    let opened = PANEL.open(fow_spec(TEXT.t(loc, "later.title"), 0.55), later_root(loc, list), Some("panelClosed"), json!({}));
     set_open(opened);
 }
 
@@ -187,6 +192,8 @@ fn open_list(list: &[LaterEntry]) {
 // ---------------------------------------------------------------------------
 
 fn handle(fn_name: &str, args: Value) -> Result<Value, Value> {
+    let loc = i18n::locale_of(&args).to_string();
+    let loc = loc.as_str();
     match fn_name {
         "plugin.manifest" => Ok(manifest()),
 
@@ -205,16 +212,16 @@ fn handle(fn_name: &str, args: Value) -> Result<Value, Value> {
                     if added {
                         save_later(&list);
                     }
-                    open_list(&list);
-                    let message = if added { "後で読むに追加しました" } else { "すでに追加されています" };
+                    open_list(loc, &list);
+                    let message = TEXT.t(loc, if added { "later.added" } else { "later.already" });
                     Ok(json!({"result": {"done": true, "message": message}}))
                 }
                 "copy" => {
                     host::clipboard_set(&post.body);
-                    Ok(json!({"result": {"done": true, "message": "本文をコピーしました"}}))
+                    Ok(json!({"result": {"done": true, "message": TEXT.t(loc, "copy.done")}}))
                 }
                 "quoteDraft" => {
-                    host::composer_open(&token, &quote_text(&post), None, None, None);
+                    host::composer_open(&token, &quote_text(&post, loc), None, None, None);
                     Ok(json!({"result": {"done": true}}))
                 }
                 other => Err(err("D01", format!("unknown actionId: {other}"))),
@@ -232,7 +239,7 @@ fn handle(fn_name: &str, args: Value) -> Result<Value, Value> {
         "later.clear" => {
             save_later(&[]);
             if is_open() {
-                Ok(PANEL.patch(vec![rrl::replace_subtree("root", later_column(&[]))]))
+                Ok(PANEL.patch(vec![rrl::replace_subtree("root", later_column(loc, &[]))]))
             } else {
                 Ok(json!({}))
             }
@@ -357,10 +364,10 @@ mod tests {
         assert_eq!(truncate_chars("abc", 3), "abc");
         assert_eq!(truncate_chars("abcd", 3), "abc…");
         let p = PostInput { url: URL1.into(), body: "  こんにちは \n".into(), ..Default::default() };
-        assert_eq!(quote_text(&p), format!("「こんにちは」\n{URL1}"));
+        assert_eq!(quote_text(&p, "ja"), format!("「こんにちは」\n{URL1}"));
         let long = "あ".repeat(100);
         let p = PostInput { url: URL1.into(), body: long, ..Default::default() };
-        assert_eq!(quote_text(&p), format!("「{}…」\n{URL1}", "あ".repeat(BODY_CHARS)));
+        assert_eq!(quote_text(&p, "ja"), format!("「{}…」\n{URL1}", "あ".repeat(BODY_CHARS)));
         // 一覧の 1 件: 作者が無ければハンドル、本文は 80 文字
         let p = PostInput { url: URL1.into(), handle: "alice".into(), body: "x".repeat(90), created_at: Some("t".into()), ..Default::default() };
         let e = LaterEntry::from_post(&p);
@@ -483,6 +490,58 @@ mod tests {
         let log = take_host_log();
         let open = log.iter().find(|(f, _)| f == "composer.open").expect("composer.open");
         assert_eq!(open.1, json!({"token": "tk1", "text": format!("「{}…」\n{URL1}", "い".repeat(BODY_CHARS))}));
+    }
+
+    /// `args.locale` の言語で文を引く(PROTOCOL.md §4.6)。表に無い言語・無い locale は ja。
+    #[test]
+    fn texts_follow_locale() {
+        let (_g, _store) = setup(Value::Null);
+        let post = json!({"url": URL1, "author": "アリス", "handle": "alice", "body": "hi"});
+        let r = call_native("post.action", json!({"token": "t", "actionId": "later", "post": post, "locale": "en"})).unwrap();
+        assert_eq!(r["result"]["message"], "Added to Read later");
+        let open = take_host_log().into_iter().find(|(f, _)| f == "fow.open").unwrap();
+        assert_eq!(open.1["spec"]["title"], "Read later");
+        assert_eq!(find_node(&open.1["root"], "later-count").unwrap()["p"]["text"], "Read later: 1");
+        assert_eq!(find_node(&open.1["root"], "later.clear").unwrap()["p"]["label"], "Clear Read later");
+        let r = call_native("post.action", json!({"token": "t", "actionId": "later", "post": post, "locale": "ko-KR"})).unwrap();
+        assert_eq!(r["result"]["message"], "이미 추가되어 있습니다");
+        let r = call_native("post.action", json!({"token": "t", "actionId": "copy", "post": post, "locale": "zh-Hant-TW"})).unwrap();
+        assert_eq!(r["result"]["message"], "已複製內文");
+        let r = call_native("post.action", json!({"token": "t", "actionId": "copy", "post": post, "locale": "zh-Hans"})).unwrap();
+        assert_eq!(r["result"]["message"], "已复制正文");
+        call_native("post.action", json!({"token": "tk9", "actionId": "quoteDraft", "post": post, "locale": "en"})).unwrap();
+        let open = take_host_log().into_iter().find(|(f, _)| f == "composer.open").unwrap();
+        assert_eq!(open.1["text"], format!("“hi”\n{URL1}"));
+        let r = call_native("post.action", json!({"token": "t", "actionId": "copy", "post": post, "locale": "fr"})).unwrap();
+        assert_eq!(r["result"]["message"], "本文をコピーしました");
+        // 空にした後の描き直しも同じ言語
+        let r = call_native("later.clear", json!({"locale": "en"})).unwrap();
+        assert_eq!(r, json!({"patch": true}));
+        let m = take_patch_message();
+        assert_eq!(find_node(&m["ops"][0]["node"], "later-empty").unwrap()["p"]["text"], "Nothing here yet");
+        // 本体ツリー(args の無い root)は最新の call の言語
+        call_native("lifecycle", json!({"kind": "mount", "locale": "ko"})).unwrap();
+        assert_eq!(find_node(&root(), "hello").unwrap()["p"]["text"], "게시물 버튼(UI는 '나중에 읽기' 패널)");
+        call_native("lifecycle", json!({"kind": "mount"})).unwrap();
+        assert_eq!(find_node(&root(), "hello").unwrap()["p"]["text"], "投稿ボタン(UI は後で読むの FOW)");
+        assert!(i18n::take_misses().is_empty());
+    }
+
+    /// マニフェストの `locales`: 4 言語とも名前・説明・ボタンの表示文を全部持つ。
+    #[test]
+    fn manifest_locales_cover_every_action() {
+        let m = call_native("plugin.manifest", json!({})).unwrap();
+        let locales = m["locales"].as_object().unwrap();
+        assert_eq!(locales.keys().map(String::as_str).collect::<Vec<_>>(), ["en", "ko", "zh-Hans", "zh-Hant"]);
+        for (tag, l) in locales {
+            assert!(l["name"].as_str().is_some_and(|s| !s.is_empty()), "{tag}");
+            assert!(l["description"].as_str().is_some_and(|s| !s.is_empty()), "{tag}");
+            for a in m["actions"].as_array().unwrap() {
+                let id = a["id"].as_str().unwrap();
+                assert!(l["actions"][id]["label"].as_str().is_some_and(|s| !s.is_empty()), "{tag}: {id}");
+            }
+        }
+        assert_eq!(m["locales"]["en"]["actions"]["later"]["label"], "Read later");
     }
 
     #[test]
