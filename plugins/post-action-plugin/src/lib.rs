@@ -99,9 +99,9 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
     }
 }
 
-/// 引用の下書きの文面: `「<本文 80 文字まで>」\n<url>`。
-pub fn quote_text(p: &PostInput) -> String {
-    format!("「{}」\n{}", truncate_chars(p.body.trim(), BODY_CHARS), p.url)
+/// 引用の下書きの文面: `「<本文 80 文字まで>」\n<url>`(引用符は `loc` の言語のもの。`{url}` を先に差し込む)。
+pub fn quote_text(p: &PostInput, loc: &str) -> String {
+    TEXT.f(loc, "quote.text", &[("url", &p.url), ("body", &truncate_chars(p.body.trim(), BODY_CHARS))])
 }
 
 /// 一覧の先頭に足す。同じ URL が既にあれば足さず `false`。`LATER_MAX` を超えたぶんは末尾(古い方)から落とす。
@@ -221,7 +221,7 @@ fn handle(fn_name: &str, args: Value) -> Result<Value, Value> {
                     Ok(json!({"result": {"done": true, "message": TEXT.t(loc, "copy.done")}}))
                 }
                 "quoteDraft" => {
-                    host::composer_open(&token, &quote_text(&post), None, None, None);
+                    host::composer_open(&token, &quote_text(&post, loc), None, None, None);
                     Ok(json!({"result": {"done": true}}))
                 }
                 other => Err(err("D01", format!("unknown actionId: {other}"))),
@@ -364,10 +364,10 @@ mod tests {
         assert_eq!(truncate_chars("abc", 3), "abc");
         assert_eq!(truncate_chars("abcd", 3), "abc…");
         let p = PostInput { url: URL1.into(), body: "  こんにちは \n".into(), ..Default::default() };
-        assert_eq!(quote_text(&p), format!("「こんにちは」\n{URL1}"));
+        assert_eq!(quote_text(&p, "ja"), format!("「こんにちは」\n{URL1}"));
         let long = "あ".repeat(100);
         let p = PostInput { url: URL1.into(), body: long, ..Default::default() };
-        assert_eq!(quote_text(&p), format!("「{}…」\n{URL1}", "あ".repeat(BODY_CHARS)));
+        assert_eq!(quote_text(&p, "ja"), format!("「{}…」\n{URL1}", "あ".repeat(BODY_CHARS)));
         // 一覧の 1 件: 作者が無ければハンドル、本文は 80 文字
         let p = PostInput { url: URL1.into(), handle: "alice".into(), body: "x".repeat(90), created_at: Some("t".into()), ..Default::default() };
         let e = LaterEntry::from_post(&p);
@@ -509,6 +509,9 @@ mod tests {
         assert_eq!(r["result"]["message"], "已複製內文");
         let r = call_native("post.action", json!({"token": "t", "actionId": "copy", "post": post, "locale": "zh-Hans"})).unwrap();
         assert_eq!(r["result"]["message"], "已复制正文");
+        call_native("post.action", json!({"token": "tk9", "actionId": "quoteDraft", "post": post, "locale": "en"})).unwrap();
+        let open = take_host_log().into_iter().find(|(f, _)| f == "composer.open").unwrap();
+        assert_eq!(open.1["text"], format!("“hi”\n{URL1}"));
         let r = call_native("post.action", json!({"token": "t", "actionId": "copy", "post": post, "locale": "fr"})).unwrap();
         assert_eq!(r["result"]["message"], "本文をコピーしました");
         // 空にした後の描き直しも同じ言語

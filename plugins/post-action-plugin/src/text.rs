@@ -1,6 +1,7 @@
 //! 利用者に見せる文の表(PROTOCOL.md §4.6)。ホストの `args.locale`(無ければ `ja`)で引く。
 //!
 //! 基準は `ja`。`en` / `zh-Hans` / `zh-Hant` / `ko` は同じキーを全部持つ(テストで確かめる)。
+//! `quote.text` は引用の下書きの文面そのもの(利用者の言語の引用符で組む)。
 
 rasq_plugin_kit::i18n_catalog! {
     pub(crate) static TEXT = {
@@ -13,6 +14,7 @@ rasq_plugin_kit::i18n_catalog! {
             "later.added" => "後で読むに追加しました",
             "later.already" => "すでに追加されています",
             "copy.done" => "本文をコピーしました",
+            "quote.text" => "「{body}」\n{url}",
         },
         "en": {
             "root.hello" => "Post buttons (the UI is the Read later panel)",
@@ -23,6 +25,7 @@ rasq_plugin_kit::i18n_catalog! {
             "later.added" => "Added to Read later",
             "later.already" => "Already added",
             "copy.done" => "Text copied",
+            "quote.text" => "“{body}”\n{url}",
         },
         "zh-Hans": {
             "root.hello" => "帖子按钮（界面为“稍后阅读”面板）",
@@ -33,6 +36,7 @@ rasq_plugin_kit::i18n_catalog! {
             "later.added" => "已添加到稍后阅读",
             "later.already" => "已经添加过了",
             "copy.done" => "已复制正文",
+            "quote.text" => "“{body}”\n{url}",
         },
         "zh-Hant": {
             "root.hello" => "貼文按鈕（介面為「稍後閱讀」面板）",
@@ -43,6 +47,7 @@ rasq_plugin_kit::i18n_catalog! {
             "later.added" => "已加入稍後閱讀",
             "later.already" => "已經加入過了",
             "copy.done" => "已複製內文",
+            "quote.text" => "「{body}」\n{url}",
         },
         "ko": {
             "root.hello" => "게시물 버튼(UI는 '나중에 읽기' 패널)",
@@ -53,6 +58,7 @@ rasq_plugin_kit::i18n_catalog! {
             "later.added" => "나중에 읽기에 추가되었습니다",
             "later.already" => "이미 추가되어 있습니다",
             "copy.done" => "본문이 복사되었습니다",
+            "quote.text" => "“{body}”\n{url}",
         },
     };
 }
